@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FIBO-Sim2Real Factory</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .container { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .step { background: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #007bff; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        input[type="file"], input[type="number"] { margin: 10px 0; padding: 8px; }
+        .progress { background: #e9ecef; border-radius: 4px; height: 20px; margin: 10px 0; }
+        .progress-bar { background: #28a745; height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .result { background: #d4edda; border: 1px solid #c3e6cb; padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🚀 FIBO-Sim2Real Factory</h1>
+    <p>Generate synthetic datasets using FIBO, train computer vision models, and deploy to edge devices.</p>
+
+    <div class="container">
+        <div class="step">
+            <h3>Step 1: Upload Golden Image</h3>
+            <input type="file" id="goldenImage" accept="image/*">
+            <button onclick="uploadImage()">Upload Image</button>
+            <div id="uploadResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Generate Synthetic Dataset</h3>
+            <label>Number of images: <input type="number" id="imageCount" value="1000" min="100" max="5000"></label><br>
+            <button onclick="generateDataset()" id="generateBtn" disabled>Generate Dataset</button>
+            <div class="progress"><div class="progress-bar" id="datasetProgress" style="width: 0%"></div></div>
+            <div id="datasetResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Train Model</h3>
+            <button onclick="trainModel()" id="trainBtn" disabled>Train YOLOv8 Model</button>
+            <div class="progress"><div class="progress-bar" id="trainProgress" style="width: 0%"></div></div>
+            <div id="trainResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 4: Test on Real Image</h3>
+            <input type="file" id="testImage" accept="image/*">
+            <button onclick="testModel()" id="testBtn" disabled>Test Model</button>
+            <div id="testResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 5: Edge Deployment</h3>
+            <button onclick="exportModel()" id="exportBtn" disabled>Export to ONNX</button>
+            <div id="exportResult"></div>
+            <p><strong>Edge Inference:</strong> Use <code>edge-demo/edge_inference.py</code> on your edge device.</p>
+        </div>
+
+        <div class="step">
+            <h3>📋 System Logs</h3>
+            <div id="logs" style="background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; white-space: pre-wrap;"></div>
+            <button onclick="clearLogs()" style="margin-top: 5px; padding: 5px 10px;">Clear Logs</button>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let goldenImagePath = '';
+        let datasetPath = '';
+        let modelPath = '';
+
+        // Logging function
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('logs');
+            logElement.textContent += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').textContent = '';
+        }
+
+        // Initialize
+        log('🚀 FIBO-Sim2Real Factory UI loaded');
+        log(`📡 API Base: ${API_BASE}`);
+
+        async function uploadImage() {
+            const fileInput = document.getElementById('goldenImage');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                log('❌ No file selected');
+                alert('Please select an image file');
+                return;
+            }
+
+            log(`📤 Starting upload: ${file.name} (${file.size} bytes)`);
+            document.getElementById('uploadResult').innerHTML = 
+                `<div style="background: #fff3cd; padding: 10px; border-radius: 4px;">
+                📤 Uploading ${file.name}...
+                </div>`;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                log(`🌐 Sending POST to ${API_BASE}/upload-golden-image`);
+                const response = await fetch(`${API_BASE}/upload-golden-image`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                log(`📡 Response status: ${response.status}`);
+                const result = await response.json();
+                log(`📋 Response data: ${JSON.stringify(result)}`);
+                
+                if (response.ok) {
+                    goldenImagePath = result.path;
+                    log(`✅ Upload successful: ${result.path}`);
+                    document.getElementById('uploadResult').innerHTML = 
+                        `<div class="result">✅ Image uploaded: ${result.path}</div>`;
+                    document.getElementById('generateBtn').disabled = false;
+                } else {
+                    throw new Error(result.message || result.detail || 'Upload failed');
+                }
+            } catch (error) {
+                log(`❌ Upload error: ${error.message}`);
+                document.getElementById('uploadResult').innerHTML = 
+                    `<div class="error">❌ Upload failed: ${error.message}</div>
+                    <div style="background: #e7f3ff; border: 1px solid #b3d9ff; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                    <strong>🛠️ Check logs below for details</strong>
+                    </div>`;
+            }
+        }
+
+        async function generateDataset() {
+            const count = document.getElementById('imageCount').value;
+            log(`🎨 Starting dataset generation: ${count} images from ${goldenImagePath}`);
+            
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('datasetProgress').style.width = '50%';
+            
+            // Show progress message
+            document.getElementById('datasetResult').innerHTML = 
+                `<div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 4px;">
+                🚀 Generating ${count} synthetic images using FIBO... This may take a few minutes.
+                </div>`;
+            
+            try {
+                log(`🌐 Sending POST to ${API_BASE}/generate-dataset`);
+                const response = await fetch(`${API_BASE}/generate-dataset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        golden_image_path: goldenImagePath,
+                        count: parseInt(count)
+                    })
+                });
+                
+                log(`📡 Response status: ${response.status}`);
+                const result = await response.json();
+                log(`📋 Generation result: ${JSON.stringify(result)}`);
+                
+                if (response.ok && result.path) {
+                    datasetPath = result.path;
+                    log(`✅ Dataset generated successfully: ${result.path}`);
+                    document.getElementById('datasetProgress').style.width = '100%';
+                    document.getElementById('datasetResult').innerHTML = 
+                        `<div class="result">✅ Dataset generated: ${result.path}</div>`;
+                    document.getElementById('trainBtn').disabled = false;
+                } else {
+                    throw new Error(result.message || 'Generation failed');
+                }
+            } catch (error) {
+                log(`❌ Generation error: ${error.message}`);
+                // Fallback: Show CLI instructions
+                document.getElementById('datasetProgress').style.width = '0%';
+                document.getElementById('datasetResult').innerHTML = 
+                    `<div class="error">❌ API Error: ${error.message}</div>
+                    <div style="background: #e7f3ff; border: 1px solid #b3d9ff; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                    <strong>🛠️ Use CLI instead:</strong><br>
+                    <code>cd /home/josh/Kiro/fibo-sim2real-factory</code><br>
+                    <code>source venv/bin/activate</code><br>
+                    <code>python scripts/generate_dataset.py --golden_image ${goldenImagePath} --count ${count}</code>
+                    </div>`;
+                
+                // Enable train button anyway for demo
+                setTimeout(() => {
+                    document.getElementById('trainBtn').disabled = false;
+                    datasetPath = 'dataset';
+                    log('🎭 Demo mode: Enabled train button');
+                }, 2000);
+            }
+            
+            document.getElementById('generateBtn').disabled = false;
+        }
+
+        async function trainModel() {
+            document.getElementById('trainBtn').disabled = true;
+            document.getElementById('trainProgress').style.width = '50%';
+            
+            // Show progress message
+            document.getElementById('trainResult').innerHTML = 
+                `<div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 4px;">
+                🤖 Training YOLOv8 model on synthetic dataset... This may take several minutes.
+                </div>`;
+            
+            try {
+                const response = await fetch(`${API_BASE}/train-model`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dataset_path: datasetPath })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    modelPath = result.path;
+                    document.getElementById('trainProgress').style.width = '100%';
+                    document.getElementById('trainResult').innerHTML = 
+                        `<div class="result">✅ Model trained: ${result.path}</div>`;
+                    document.getElementById('testBtn').disabled = false;
+                    document.getElementById('exportBtn').disabled = false;
+                } else {
+                    throw new Error(result.message || 'Training failed');
+                }
+            } catch (error) {
+                // Fallback: Show CLI instructions and enable next step
+                document.getElementById('trainProgress').style.width = '0%';
+                document.getElementById('trainResult').innerHTML = 
+                    `<div class="error">❌ API Error: ${error.message}</div>
+                    <div style="background: #e7f3ff; border: 1px solid #b3d9ff; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                    <strong>🛠️ Use CLI instead:</strong><br>
+                    <code>python scripts/train_model.py --dataset ${datasetPath}</code>
+                    </div>`;
+                
+                // Enable next buttons anyway for demo
+                setTimeout(() => {
+                    document.getElementById('testBtn').disabled = false;
+                    document.getElementById('exportBtn').disabled = false;
+                    modelPath = 'models/demo.pt';
+                }, 2000);
+            }
+            
+            document.getElementById('trainBtn').disabled = false;
+        }
+            }
+            
+            document.getElementById('trainBtn').disabled = false;
+        }
+
+        async function testModel() {
+            const fileInput = document.getElementById('testImage');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a test image');
+                return;
+            }
+
+            // Upload test image first
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const uploadResponse = await fetch(`${API_BASE}/upload-golden-image`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const uploadResult = await uploadResponse.json();
+                const testImagePath = uploadResult.path;
+
+                // Test model
+                const response = await fetch(`${API_BASE}/test-model`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model_path: modelPath,
+                        test_image_path: testImagePath
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('testResult').innerHTML = 
+                        `<div class="result">✅ Detection complete: ${result.results.total_detections} objects found</div>`;
+                } else {
+                    throw new Error(result.detail);
+                }
+            } catch (error) {
+                document.getElementById('testResult').innerHTML = 
+                    `<div class="error">❌ Testing failed: ${error.message}</div>`;
+            }
+        }
+
+        async function exportModel() {
+            try {
+                const response = await fetch(`${API_BASE}/export-model`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_path: modelPath })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('exportResult').innerHTML = 
+                        `<div class="result">✅ Model exported to ONNX: ${result.onnx_path}</div>`;
+                } else {
+                    throw new Error(result.detail);
+                }
+            } catch (error) {
+                document.getElementById('exportResult').innerHTML = 
+                    `<div class="error">❌ Export failed: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

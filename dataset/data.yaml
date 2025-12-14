@@ -1,0 +1,6 @@
+names:
+- object
+nc: 1
+path: /home/josh/Kiro/fibo-sim2real-factory/dataset
+train: images/train
+val: images/val
