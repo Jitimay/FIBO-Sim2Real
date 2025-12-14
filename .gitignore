@@ -1,0 +1,39 @@
+# Virtual Environment
+venv/
+env/
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Dataset and Models
+dataset/
+models/
+uploads/
+*.pt
+*.onnx
+*.jpg
+*.png
+*.jpeg
+
+# Logs and temp files
+*.log
+temp_server.py
+server.log
+fibo_test_result.jpg
+test_image.jpg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
