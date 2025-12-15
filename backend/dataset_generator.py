@@ -12,23 +12,43 @@ class DatasetGenerator:
     def __init__(self, fibo_client):
         self.fibo_client = fibo_client
         
-    def generate_variation_params(self) -> Dict[str, Any]:
-        """Generate random variation parameters for FIBO"""
-        return {
-            "seed": random.randint(1, 1000000),
-            "azimuth": random.uniform(-180, 180),
-            "elevation": random.uniform(-30, 60),
-            "distance": random.uniform(0.5, 2.0),
-            "fov": random.uniform(30, 70),
-            "light_intensity": random.uniform(0.5, 1.5),
-            "light_angle": random.uniform(0, 90),
-            "roughness": random.uniform(0.1, 0.9),
-            "metallic": random.uniform(0.0, 0.3),
-            "background": random.choice([
-                "industrial", "outdoor", "lab", "neutral", "warehouse"
-            ]),
-            "noise": random.uniform(0.0, 0.1)
-        }
+    def generate_prompt(self) -> str:
+        """Generates a descriptive text prompt for the Bria API."""
+        
+        base_object = "a photo of the user-provided object"
+
+        environments = [
+            "in a clean, modern laboratory setting",
+            "on a workbench in a cluttered garage",
+            "in a bright, sterile factory environment",
+            "on a wooden table in an office",
+            "outdoors on a patch of green grass",
+            "on a metal shelf in a warehouse",
+            "in a professional photo studio with a white background",
+            "on a concrete floor in an industrial setting"
+        ]
+        
+        lighting = [
+            "with bright, even studio lighting",
+            "with dramatic, high-contrast lighting",
+            "with soft, diffused overhead lighting",
+            "with warm, early morning sunlight",
+            "with cool, overcast daylight",
+            "under fluorescent office lights"
+        ]
+        
+        angles = [
+            "shot from a low angle",
+            "shot from a high angle, looking down",
+            "shot from a straight-on, eye-level perspective",
+            "shot from a 45-degree angle",
+            "with a slightly rotated, dutch angle",
+            "as a close-up shot"
+        ]
+
+        prompt = f"{base_object}, {random.choice(environments)}, {random.choice(lighting)}, {random.choice(angles)}. professional product photography, 8k, sharp focus."
+        
+        return prompt
     
     async def generate_synthetic_dataset(self, golden_image_path: str, count: int) -> str:
         """Generate complete synthetic dataset with auto-labeling"""
@@ -66,27 +86,46 @@ class DatasetGenerator:
                             images_dir: Path, labels_dir: Path):
         """Generate images and labels for a dataset split"""
         
-        for i in tqdm(range(count), desc="Generating images"):
-            # Generate variation parameters
-            params = self.generate_variation_params()
+        failure_count = 0
+        max_failures = 10 # Abort after 10 consecutive failures
+
+        for i in tqdm(range(count), desc=f"Generating {images_dir.parent.name} split"):
+            # 1. Generate a descriptive prompt for the Bria API
+            prompt = self.generate_prompt()
             
-            # Generate synthetic image using FIBO
-            image_bytes = self.fibo_client.generate_image(golden_image_path, params)
-            
-            # Save image
-            image_path = images_dir / f"image_{i:06d}.jpg"
-            with open(image_path, "wb") as f:
-                f.write(image_bytes)
-            
-            # Get bounding box from FIBO
-            bbox_data = self.fibo_client.get_bounding_box(image_bytes)
-            
-            # Convert to YOLO format and save label
-            yolo_label = self._convert_to_yolo_format(bbox_data)
-            label_path = labels_dir / f"image_{i:06d}.txt"
-            
-            with open(label_path, "w") as f:
-                f.write(yolo_label)
+            try:
+                # 2. Generate synthetic image and get the API response
+                result = self.fibo_client.generate_image(prompt, source_image_path=golden_image_path)
+                image_bytes = result["image_bytes"]
+                api_response = result["api_response"]
+                
+                # 3. Save the generated image
+                image_path = images_dir / f"image_{i:06d}.jpg"
+                with open(image_path, "wb") as f:
+                    f.write(image_bytes)
+                
+                # 4. Get bounding box from the API response
+                bbox_data = self.fibo_client.get_bounding_box(api_response)
+                
+                # 5. Convert to YOLO format and save the label
+                yolo_label = self._convert_to_yolo_format(bbox_data)
+                label_path = labels_dir / f"image_{i:06d}.txt"
+                
+                with open(label_path, "w") as f:
+                    f.write(yolo_label)
+                
+                failure_count = 0 # Reset on success
+
+            except Exception as e:
+                failure_count += 1
+                print(f"❌ Failed to generate image/label for iteration {i}: {e}")
+                if failure_count >= max_failures:
+                    raise RuntimeError(
+                        "Image generation failed too many times. "
+                        "Please check your API key and network connection. "
+                        f"Last error: {e}"
+                    )
+                continue
     
     def _convert_to_yolo_format(self, bbox_data: Dict[str, Any]) -> str:
         """Convert bounding box to YOLO format"""

@@ -8,126 +8,160 @@ from PIL import Image, ImageEnhance, ImageFilter
 import io
 import random
 
+import os
+import requests
+import time
+from dotenv import load_dotenv
+from typing import Dict, Any
+
+# Load key from .env file
 load_dotenv()
 
 class FIBOClient:
-    def __init__(self):
-        self.api_key = os.getenv("FIBO_API_KEY")
-        # Note: Actual FIBO endpoint needs to be confirmed with Bria documentation
-        self.base_url = "https://engine.prod.bria-api.com/v1"
-        
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv("BRIA_API_TOKEN")
         if not self.api_key:
-            raise ValueError("FIBO_API_KEY not found in environment")
+            raise ValueError("BRIA_API_TOKEN not found in environment. Please set it in your .env file.")
         
-        print(f"🔑 FIBO API Key configured: {self.api_key[:10]}...")
-    
-    def generate_image(self, golden_image_path: str, variation_params: Dict[str, Any]) -> bytes:
-        """Generate synthetic image using FIBO-style variations"""
-        
-        # For hackathon demo: Create realistic variations of the golden image
-        # In production: Replace with actual FIBO API call
-        
-        print(f"🎨 Generating FIBO-style variation with params: {variation_params}")
-        
-        # Load golden image
-        with open(golden_image_path, "rb") as f:
-            original_image = Image.open(io.BytesIO(f.read()))
-        
-        # Apply FIBO-style transformations based on parameters
-        modified_image = self._apply_fibo_variations(original_image, variation_params)
-        
-        # Convert back to bytes
-        output_buffer = io.BytesIO()
-        modified_image.save(output_buffer, format='JPEG', quality=90)
-        
-        # TODO: Replace with actual FIBO API call:
-        # response = requests.post(
-        #     f"{self.base_url}/correct-endpoint",
-        #     headers={"api_token": self.api_key},
-        #     files={"file": f.read()},
-        #     data={"prompt": self._build_prompt(variation_params)}
-        # )
-        
-        return output_buffer.getvalue()
-    
-    def _apply_fibo_variations(self, image: Image.Image, params: Dict[str, Any]) -> Image.Image:
-        """Apply FIBO-style variations to demonstrate the concept"""
-        
-        # Start with original
-        result = image.copy()
-        
-        # Apply lighting variations
-        light_intensity = params.get('light_intensity', 1.0)
-        if light_intensity != 1.0:
-            enhancer = ImageEnhance.Brightness(result)
-            result = enhancer.enhance(light_intensity)
-        
-        # Apply background changes (simulate different backgrounds)
-        bg = params.get('background', 'neutral')
-        if bg != 'neutral':
-            # Simulate background change by adjusting color tone
-            if bg == 'industrial':
-                enhancer = ImageEnhance.Color(result)
-                result = enhancer.enhance(0.8)  # More muted colors
-            elif bg == 'outdoor':
-                enhancer = ImageEnhance.Color(result)
-                result = enhancer.enhance(1.2)  # More vibrant
-        
-        # Apply material property changes
-        roughness = params.get('roughness', 0.5)
-        if roughness > 0.7:
-            # Add slight blur for rough surfaces
-            result = result.filter(ImageFilter.GaussianBlur(radius=0.5))
-        elif roughness < 0.3:
-            # Enhance sharpness for smooth surfaces
-            result = result.filter(ImageFilter.UnsharpMask())
-        
-        # Add slight rotation for camera angle simulation
-        elevation = params.get('elevation', 0)
-        if abs(elevation) > 15:
-            angle = elevation * 0.1  # Small rotation
-            result = result.rotate(angle, expand=False, fillcolor='white')
-        
-        # Add noise if specified
-        noise_level = params.get('noise', 0.0)
-        if noise_level > 0:
-            # Add subtle noise
-            import numpy as np
-            img_array = np.array(result)
-            noise = np.random.normal(0, noise_level * 25, img_array.shape)
-            noisy_array = np.clip(img_array + noise, 0, 255).astype(np.uint8)
-            result = Image.fromarray(noisy_array)
-        
-        return result
-    
-    def _build_prompt(self, params: Dict[str, Any]) -> str:
-        """Build FIBO prompt from variation parameters"""
-        base_prompt = "high quality product photography"
-        
-        # Add lighting conditions
-        lighting = params.get('light_intensity', 1.0)
-        if lighting > 1.2:
-            base_prompt += ", bright lighting"
-        elif lighting < 0.8:
-            base_prompt += ", soft lighting"
-        
-        # Add background
-        bg = params.get('background', 'neutral')
-        bg_map = {
-            'industrial': ', industrial background, factory setting',
-            'outdoor': ', outdoor natural background',
-            'lab': ', clean laboratory background, white',
-            'warehouse': ', warehouse background, shelves',
-            'neutral': ', clean white background'
+        self.base_url = "https://api.bria.ai/v1"
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
         }
-        base_prompt += bg_map.get(bg, ', neutral background')
+        print("🔑 Bria API Client Initialized (v1, Async Flow)")
+
+    def _submit_request(self, prompt: str, source_image_path: str = None) -> str:
+        """Submits the image generation request and returns the status URL."""
         
-        return base_prompt
-    
-    def get_bounding_box(self, image_bytes: bytes) -> Dict[str, Any]:
-        """Get bounding box - assumes centered object for synthetic images"""
+        # Use the "Image-to-Image" endpoint if a source image is provided
+        endpoint = "/image-to-image/base" if source_image_path else "/text-to-image/base"
+        url = self.base_url + endpoint
+        
+        print(f"Submitting request to: {url}")
+        
+        # The payload is sent as multipart-form data, not JSON, when an image is present
+        data = {"prompt": prompt}
+        files = {}
+        headers = {"Authorization": f"Bearer {self.api_key}"} # No Content-Type for multipart
+
+        if source_image_path:
+            files['image'] = (os.path.basename(source_image_path), open(source_image_path, 'rb'), 'image/jpeg')
+        
+        try:
+            response = requests.post(url, data=data, files=files, headers=headers)
+            response.raise_for_status()
+            
+            response_data = response.json()
+            status_url = response_data.get("status_url")
+            
+            if not status_url:
+                raise ValueError("API did not return a status_url.")
+                
+            print(f"Request submitted successfully. Status URL: {status_url}")
+            return status_url
+            
+        finally:
+            if 'image' in files:
+                files['image'][1].close()
+
+    def _poll_for_results(self, status_url: str, max_attempts: int = 30) -> Dict[str, Any]:
+        """Polls the status URL until the image is generated or an error occurs."""
+        print(f"Polling status URL: {status_url}")
+        
+        # Use headers with Content-Type for GET requests
+        poll_headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        for i in range(max_attempts):
+            response = requests.get(status_url, headers=poll_headers)
+            response.raise_for_status()
+            
+            status_data = response.json()
+            status = status_data.get("status")
+            
+            if status == "COMPLETED":
+                print(f"Status: COMPLETED (Attempt {i+1})")
+                return status_data
+            
+            elif status == "ERROR":
+                error_details = status_data.get("error", "Unknown error")
+                raise Exception(f"Image generation failed: {error_details}")
+                
+            print(f"Status: {status} (Attempt {i+1}). Waiting...")
+            time.sleep(3)
+            
+        raise TimeoutError("Image generation timed out after several attempts.")
+
+    def _download_image(self, image_url: str) -> bytes:
+        """Downloads the image from the given URL."""
+        print(f"Downloading final image from: {image_url}")
+        
+        image_response = requests.get(image_url)
+        image_response.raise_for_status()
+        
+        return image_response.content
+
+    def generate_image(self, prompt: str, source_image_path: str = None) -> Dict[str, Any]:
+        """
+        Runs the full asynchronous workflow to generate and retrieve an image.
+        
+        Returns a dictionary containing the image bytes and the final API response data.
+        """
+        # 1. Submit the generation request
+        status_url = self._submit_request(prompt, source_image_path)
+        
+        # 2. Poll the status URL until complete
+        completed_data = self._poll_for_results(status_url)
+        
+        # 3. Extract image URL from the final response
+        image_url = completed_data.get("result", [{}])[0].get("image_url")
+        if not image_url:
+            raise ValueError("Completed job did not contain an image URL.")
+
+        # 4. Download the final image
+        image_bytes = self._download_image(image_url)
+        
+        print("✅ Image successfully generated and downloaded.")
+        
         return {
-            "bbox": [0.2, 0.2, 0.8, 0.8],  # x1, y1, x2, y2 normalized
-            "confidence": 0.95,
-            "class": "object"
+            "image_bytes": image_bytes,
+            "api_response": completed_data # Return the full response for bounding box extraction
         }
+
+    def get_bounding_box(self, api_response: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extracts bounding box information from the final Bria API response.
+        """
+        try:
+            # The bounding box is in the 'result' list of the completed data
+            result_data = api_response.get("result", [{}])[0]
+            chains = result_data.get("chains", [])
+            
+            if not chains:
+                print("⚠️ No 'chains' data found for bounding box. Returning a default box.")
+                return {"bbox": [0.0, 0.0, 1.0, 1.0], "confidence": 0.5, "class": "object"}
+
+            # Find the object from the source image
+            source_object = next((obj for obj in chains if obj.get("source") == "source_image"), None)
+            
+            if not source_object or "bounding_box" not in source_object:
+                print("⚠️ No source object bounding box found. Returning a default box.")
+                return {"bbox": [0.0, 0.0, 1.0, 1.0], "confidence": 0.5, "class": "object"}
+
+            # Bria returns [x_min, y_min, width, height]
+            x1, y1, w, h = source_object["bounding_box"]
+            x2 = x1 + w
+            y2 = y1 + h
+
+            bbox = [x1, y1, x2, y2]
+            print(f"✅ Extracted bounding box: {bbox}")
+
+            return {
+                "bbox": bbox,
+                "confidence": source_object.get("confidence", 0.9),
+                "class": source_object.get("label", "object")
+            }
+            
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"❌ Error parsing bounding box from API response: {e}")
+            raise ValueError("Could not extract bounding box from the provided API response.")
+
