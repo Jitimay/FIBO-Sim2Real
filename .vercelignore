@@ -1,0 +1,12 @@
+models/
+dataset/
+venv/
+*.pt
+*.onnx
+*.jpg
+*.jpeg
+*.png
+uploads/
+yolov8n.pt
+__pycache__/
+.git/
