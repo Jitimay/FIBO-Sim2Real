@@ -341,12 +341,9 @@ try:
 except Exception as e:
     print(f"⚠️ Frontend mount failed: {e}")
 
+# Vercel handler
+handler = app
+
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting Working Server...")
-    print("📡 Server: http://localhost:8000")
-    print("🌐 Web UI: http://localhost:8000")
-    print("📋 API docs: http://localhost:8000/docs")
-    print("🔧 All endpoints guaranteed to work!")
-    
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)  # Disable reload for stability
+    uvicorn.run(app, host="0.0.0.0", port=8000)
